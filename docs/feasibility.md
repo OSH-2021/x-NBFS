@@ -119,7 +119,7 @@
 	
 #### FUSE使用
 
-这里介绍一个具体的实例演示`FUSE`的使用。本实例仅在该文件系统的根目录中显示一个固定的文件，也就是`Hello-world`文件。
+这里介绍一个具体的实例演示`FUSE`的使用。本实例仅在该文件系统的根目录中显示一个固定的文件，`Hello-world`文件。
 源代码如下：
 
 ```c
@@ -173,6 +173,17 @@ int main(int argc, char *argv[])
 
 可以看到输出内容中包含如下内容：
  > `fuse_user on /tmp/file_on_fuse_fs type fuse.fuse_user (rw,nosuid,nodev)`
+
+运行ls命令查看目录
+ > `ls -alh /tmp/file_on_fuse_fs`
+
+得到如下输出
+```c
+总用量 0
+-rw-r--r-- 0 root root 0 1月    1 1970 Hello-world
+```
+
+即我们预期的内容，一个Hello-world文件
 
 #### 测试
 
