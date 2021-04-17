@@ -42,7 +42,7 @@
 
 从系统角度来看，文件系统是对文件存储设备的空间进行组织和分配，负责文件存储并对存入的文件进行保护和检索的系统。具体地说，它负责为用户建立文件，存入、读出、修改、转储文件，控制文件的存取，当用户不再使用时撤销文件等。
 
-![filesystem](/docs/files/filesystem.jpg)
+![filesystem](/docs/files/1_filesystem.jpg)
 
 文件系统使用文件和树形目录的抽象逻辑概念代替了硬盘和光盘等物理设备使用数据块的概念，用户使用文件系统来保存数据不必关心数据实际保存在硬盘（或者光盘）的地址为多少的数据块上，只需要记住这个文件的所属目录和文件名。在写入新数据之前，用户不必关心硬盘上的那个块地址没有被使用，硬盘上的存储空间管理（分配和释放）功能由文件系统自动完成，用户只需要记住数据被写入到了哪个文件中。
 
@@ -80,7 +80,7 @@
 
 `NVMe`要求I/O命令集与I/O队列一起使用。该规范定义了一个I/O命令集，被命名为`NVM Command Set`。
 
-![NVMe_controllor](/docs/files/NVMe_controllor.png)
+![NVMe_controllor](/docs/files/1_NVMe_controllor.png)
 
 主机软件会创建队列，最多不超过控制器支持的队列。通常数量创建的命令队列基于系统配置和预期的工作量。例如，在基于四核处理器的系统上，每个核可能有一个队列对`（queue pair）`，以避免锁定并确保数据结构是在适当的处理器内核的缓存中创建的。下图提供了图形队列机制的表示形式，显示了“提交队列”与“完成队列”之间的1：1映射完成队列。
 
@@ -88,19 +88,19 @@
 
 - 当数据从存储传输到服务器主机时，会进入I/O队列。传统的`AHCI`协议只能支持一个队列，一次只能接收32条数据。而`NVMe`存储支持最多64000个队列，每个队列有64000个条目。
 
-![AHCI_NVMe](/docs/files/AHCI_NVMe.jpg)
+![AHCI_NVMe](/docs/files/1_AHCI_NVMe.jpg)
 
 - `NVMe`使用原生`PCIe`通道，免去了`SATA`与`SAS`接口的主机适配器与CPU通信所带来的延时。`NVMe`标准的延时只有`AHCI`的一半不到：`NVMe`精简了调用方式，执行命令时不需要读取寄存器；而`AHCI`每条命令则需要读取4次寄存器，一共会消耗8000次CPU循环，从而造成大概2.5微秒的延迟。
 
-![NVMe_delay](/docs/files/NVMe_delay.jpg)
+![NVMe_delay](/docs/files/1_NVMe_delay.jpg)
 
 - `NVMe`支持同时从多核处理器接受命令和优先处理请求，这在企业级的重负载时优势明显。
 
-![NVMe_multi](/docs/files/NVMe_multi.jpg)
+![NVMe_multi](/docs/files/1_NVMe_multi.jpg)
 
 - `NVMe`加入了自动功耗状态切换和动态能耗管理功能。设备从`Power State 0`闲置50ms后可以切换到`Power State 1`；继续闲置的话，在500ms后又会进入功耗更低的`Power State 2`，切换时会有短暂延迟。`SSD`在闲置时可以非常快速的控制在极低的水平，在功耗管理上`NVMe`标准的`SSD`会比`AHCI SSD`拥有较大优势。
 
-![NVMe_power](/docs/files/NVMe_power.png)
+![NVMe_power](/docs/files/1_NVMe_power.png)
 
 ### 立项依据
 
@@ -138,7 +138,7 @@
 
 NVMe SSD相较于传统的HDD或SATA SSD具有更高的读写速度，更低的延迟，随着NVMe SSD成本的下降，NVMe SSD的市场占有率不断提高。2020年全球HDD机械硬盘的出货量为3.5亿个，SSD固态硬盘出货量未3.2亿个。预计2021年，SSD硬盘全球出货量将反超HDD，达到3.6亿个。SSD固态硬盘保持高速增长，2018年全球出货量突破2亿个，增长近四成。与此相比的是HDD出货量连续5年的下跌。
 
-![NVMe_future](/docs/files/NVMe_future.png)
+![NVMe_future](/docs/files/1_NVMe_future.png)
 
 而在未来，由于AI、数据库等数据密集型应用的爆发，NVMe SSD的需求将会继续增加，为了满足日益增长的需要，需要将文件系统这最后一块“短板”补上。
 
@@ -178,19 +178,21 @@ NVMe SSD相较于传统的HDD或SATA SSD具有更高的读写速度，更低的�
 `SPDK`的基础是用户态、轮询、异步、无锁`NVMe`驱动。这提供了从用户空间应用程序直接访问`SSD`的零拷贝、高度并行的访问。驱动程序被编写为带有一个公共头文件的C语言库。
 `SPDK`进一步提供了一个完整的块堆栈，作为一个用户空间库，它执行许多与操作系统中的块堆栈相同的操作。这包括统一不同存储设备之间的接口、通过队列来处理内存不足或I/O挂起等情况以及逻辑卷管理。
 
-![SPDK](/docs/files/SPDK.png)
+![SPDK](/docs/files/1_SPDK.png)
 
 最后，`SPDK`提供`NVMe-oF`,`iSCSI`,和`vhost`。在这些组件之上构建的服务器,能够通过网络或其他进程为磁盘提供服务。`NVMe`和`iSCSI`的标准Linux内核启动器与这些target交互, 以及与`QEMU`和虚拟主机进行交互。与其他实现相比，这些服务器的CPU效率可以提高一个数量级。这些target可以用作实现高性能存储目标的范例，也可以用作生产部署的基础。
 
 ### 参考文献
 
- - [文件系统](https://en.wikipedia.org/wiki/File_system)
- - [NVMe-Wiki](https://fr.wikipedia.org/wiki/NVM_Express)
- - [NVMe-白皮书](https://nvmexpress.org/white-papers/)
- - [文件系统不足](https://ieeexplore.ieee.org/abstract/document/9359155/)
- - [修改文件系统的必要性](https://searchstorage.techtarget.com.cn/6-27904/)
- - [XFS](https://en.wikipedia.org/wiki/XFS)
- - [Ext4](https://en.wikipedia.org/wiki/Ext4)
- - [F2FS](https://en.wikipedia.org/wiki/F2FS)
- - [Linux 5.0 File-System Benchmarks: Btrfs vs. EXT4 vs. F2FS vs. XFS](https://www.phoronix.com/scan.php?page=article&item=linux-50-filesystems&num=1)
- - [SPDK](https://spdk.io/)
+ - File system. (2021, March 29). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/File_system/
+ - NVM express. (2021, March 26). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/NVM_Express
+ - White papers. (2016, August 05). Retrieved April 14, 2021, from https://nvmexpress.org/white-papers/
+ - Y. T. Jin, S. Ahn and S. Lee, "Performance Analysis of NVMe SSD-Based All-flash Array Systems," 2018 IEEE International Symposium on Performance Analysis of Systems and Software (ISPASS), Belfast, UK, pp. 12-21, 2018.
+ - A. Tavakkol et al., "FLIN: Enabling Fairness and Enhancing Performance in Modern NVMe Solid State Drives," 2018 ACM/IEEE 45th Annual International Symposium on Computer Architecture (ISCA), Los Angeles, CA, USA, pp. 397-410, 2018.
+ - Y. Tu, Y. Han, Z. Chen, Z. Chen and B. Chen, "URFS: A User-space Raw File System based on NVMe SSD," 2020 IEEE 26th International Conference on Parallel and Distributed Systems (ICPADS), Hong Kong, pp. 494-501, 2020.
+ - 看文件系统结构如何降低nvme性能. (2019, January 02). Retrieved April 14, 2021, from https://searchstorage.techtarget.com.cn/6-27904/
+ - XFS. (2021, March 04). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/XFS
+ - Ext4. (2020, December 18). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/Ext4
+ - F2FS. (2021, March 02). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/F2FS
+ - Written by Michael Larabel in Storage on 7 January 2019. Page 1 of 4. 61 Comments. (2019, January 7). Linux 5.0 File-System Benchmarks: Btrfs vs. ext4 VS. F2FS Vs. xfs. Retrieved April 14, 2021, from https://www.phoronix.com/scan.php?page=article&item=linux-50-filesystems&num=1
+ - Storage performance development kit. Retrieved April 14, 2021, from https://spdk.io/
