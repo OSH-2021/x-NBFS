@@ -172,7 +172,9 @@ int main(int argc, char *argv[])
  > `mount`
 
 可以看到输出内容中包含如下内容：
- > `fuse_user on /tmp/file_on_fuse_fs type fuse.fuse_user (rw,nosuid,nodev)`
+```c
+fuse_user on /tmp/file_on_fuse_fs type fuse.fuse_user (rw,nosuid,nodev)
+```
 
 运行ls命令查看目录
  > `ls -alh /tmp/file_on_fuse_fs`
