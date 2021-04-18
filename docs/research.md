@@ -1,40 +1,39 @@
 # 调研报告
 
 - [调研报告](#调研报告)
-    - [小组成员](#小组成员)
-    - [项目简介](#项目简介)
-    - [项目背景](#项目背景)
-      - [文件系统](#文件系统)
-      - [NVMe](#nvme)
-    - [立项依据](#立项依据)
-      - [当前文件系统的不足](#当前文件系统的不足)
-      - [修改文件系统的必要性](#修改文件系统的必要性)
-    - [重要性和前瞻性分析](#重要性和前瞻性分析)
-      - [针对NVMe优化的文件系统具有重要的现实意义](#针对nvme优化的文件系统具有重要的现实意义)
-      - [改写文件系统对NVMe SSD读写性能等方面的提升](#改写文件系统对nvme-ssd读写性能等方面的提升)
-    - [相关工作](#相关工作)
-      - [其它文件系统](#其它文件系统)
-      - [SPDK 存储应用开发套件](#spdk-存储应用开发套件)
-    - [参考文献](#参考文献)
-- [- Storage performance development kit. Retrieved April 14, 2021, from https://spdk.io/](#--storage-performance-development-kit-retrieved-april-14-2021-from-httpsspdkio)
+  - [小组成员](#小组成员)
+  - [项目简介](#项目简介)
+  - [项目背景](#项目背景)
+    - [文件系统](#文件系统)
+    - [NVMe](#nvme)
+  - [立项依据](#立项依据)
+    - [当前文件系统的不足](#当前文件系统的不足)
+    - [修改文件系统的必要性](#修改文件系统的必要性)
+  - [重要性和前瞻性分析](#重要性和前瞻性分析)
+    - [针对NVMe优化的文件系统具有重要的现实意义](#针对nvme优化的文件系统具有重要的现实意义)
+    - [改写文件系统对NVMe SSD读写性能等方面的提升](#改写文件系统对nvme-ssd读写性能等方面的提升)
+  - [相关工作](#相关工作)
+    - [其它文件系统](#其它文件系统)
+    - [SPDK 存储应用开发套件](#spdk-存储应用开发套件)
+  - [参考文献](#参考文献)
 
-### 小组成员
+## 小组成员
 
 - 陈耀祺
 - 黄科鑫
 - 梁峻滔
 - 郑师程
 
-### 项目简介
+## 项目简介
 
 近几年存储行业发生了翻天覆地的变化，半导体存储登上了历史的舞台。和传统磁盘存储介质相比，半导体存储介质具有天然的优势。无论在可靠性、性能、功耗等方面都远远超越传统磁盘。目前常用的半导体存储介质是`NVMe SSD`，采用`PCIe`接口方式与主机进行交互，大大提升了性能，释放了存储介质本身的性能。
 
 存储介质的革命一方面给存储系统性能提升带来了福音；另一方面对文件系统的设计带来了诸多挑战。原有面向磁盘设计的文件系统不能充分利用新型存储介质，面向新型存储介质需要重新设计更加合理的存储软件堆栈，发挥存储介质的性能，并且可以规避新介质带来的新问题。
 本次实验项目将通过对现有文件系统进行针对性的优化，以实现性能的提升。
 
-### 项目背景
+## 项目背景
 
-#### 文件系统
+### 文件系统
 
 文件系统是操作系统用于明确存储设备或分区上的文件的方法和数据结构，即在存储设备上组织文件的方法。操作系统中负责管理和存储文件信息的软件机构称为文件管理系统，简称文件系统。文件系统由三部分组成：
 
@@ -70,7 +69,7 @@
   日志文件系统具有闪存文件系统需要的特性，这类文件系统包括`JFFS2`和`YAFFS`。也有为了避免日志频繁写入而导致闪存寿命衰减的非日志文件系统，如`exFAT`。
 
 
-#### NVMe
+### NVMe
 
 `NVM Express(NVMe)`，或称非易失性内存主机控制器接口规范`(Non-Volatile Memory Host Controller Interface Specification)`，是一个逻辑设备接口规范。它是基于设备逻辑接口的总线传输协议规范（相当于通讯协议中的应用层），用于访问通过`PCI Express(PCIe)`总线附加的非易失性存储器介质（例如采用闪存的固态硬盘驱动器），虽然理论上不一定要求`PCIe`总线协议。`NVMe`是一种协议，是一组允许`SSD`使用`PCIe`总线的软硬件标准；而`PCIe`是实际的物理连接通道。
 
@@ -104,9 +103,9 @@
 
 ![NVMe_power](/docs/files/1_NVMe_power.png)
 
-### 立项依据
+## 立项依据
 
-#### 当前文件系统的不足
+### 当前文件系统的不足
 
 与为机械硬盘设计的`AHCI`协议不同,`NVMe`是专为固态硬盘构建的接口协议, 不仅可以发挥固态硬盘在快速读写方面的优势, 还可以充分利用多核CPU和大容量内存。然而，目前的文件系统对于`NVMe`的运用仍然存在以下不足：
 
@@ -124,7 +123,7 @@
 
 - 不支持多个应用程序对`SSD`的共享访问。由于文件系统处于用户态, 未经过操作系统的块设备驱动, 因此, 应用程序只能绑定`SSD`进行读写访问。显然, 这与传统的内核态文件系统的使用有较大的差异, 无法实现多个应用程序对`SSD`的共享访问, 而这种访问在一些场景(如多个客户共享读取一个热点视频)中十分重要。
 
-#### 修改文件系统的必要性
+### 修改文件系统的必要性
 
 通过改善物理接口以及增加命令数量和队列深度，`NVMe`可使存储基础架构充分利用基于闪存的存储。但同时`NVMe`也带来挑战：`NVMe`具有极高的延迟效率，因而可能暴露存储基础架构其他组件的弱点。而基础架构中任何薄弱环节都会增加延迟性并降低`NVMe`的价值。 在存储基础架构中，最容易出问题的是文件系统。现在我们应该重新考虑文件系统结构，特别是必须重新调整文件系统与`NVMe`存储的交互方式，以避免其成为主要瓶颈。
 
@@ -152,9 +151,9 @@
 
 因此，有必要对文件系统做出修改，以实现`NVMe SSD`的利用最大化。
 
-### 重要性和前瞻性分析
+## 重要性和前瞻性分析
 
-#### 针对NVMe优化的文件系统具有重要的现实意义
+### 针对NVMe优化的文件系统具有重要的现实意义
 
 **1、 NVMe SSD的普及引发对文件系统的有关需求**
 `NVMe SSD`相较于传统的`HDD`或`SATA SSD`具有更高的读写速度，更低的延迟，随着`NVMe SSD`成本的下降，`NVMe SSD`的市场占有率不断提高。2020年全球`HDD`机械硬盘的出货量为3.5亿个，`SSD`固态硬盘出货量未3.2亿个。预计2021年，`SSD`硬盘全球出货量将反超`HDD`，达到3.6亿个。`SSD`固态硬盘保持高速增长，2018年全球出货量突破2亿个，增长近四成。与此相比的是`HDD`出货量连续5年的下跌。
@@ -166,7 +165,7 @@
 **2、 解决AI、数据库等某些应用的性能瓶颈**
 而在未来，由于AI、数据库等数据密集型应用的爆发，`NVMe SSD`的需求将会继续增加。然而，与之匹配的文件系统却迟迟没有大规模应用，当前的文件系统普遍存在无法兼顾空间利用率和读写性能、读写不匹配问题、未充分发挥`NVMe SSD`的多队列高性能特性等等问题，为了满足日益增长的需要,需要将文件系统这最后一块“短板”补上。
 
-#### 改写文件系统对NVMe SSD读写性能等方面的提升
+### 改写文件系统对NVMe SSD读写性能等方面的提升
 
 通过改善物理接口以及增加命令数量和队列深度，`NVMe`可使存储基础架构充分利用基于闪存的存储。但同时`NVMe`也带来挑战：`SSD`与`NVMe`高效的配合，使存储器的硬件时延显著降低, 导致存储软件的时延成为存储系统整体时延的主要部分，而架构中任何薄弱环节都会增加延迟性并降低`NVMe`的价值。 在存储基础架构中，最容易出问题的是文件系统，需要重新调整文件系统与`NVMe`存储的交互方式，以避免其成为主要瓶颈。
 
@@ -180,9 +179,9 @@
 
 由此可见，修改文件系统，就可以进一步释放`NVMe SSD`的性能，进而提高存储系统的读写能力。
 
-### 相关工作
+## 相关工作
 
-#### 其它文件系统
+### 其它文件系统
 
 - **XFS**
   `XFS`是由`Silicon Graphics Inc（SGI）`于1993年创建的高性能64位日记文件系统。从`SGI 5.3`版本开始，它是`SGI IRIX`操作系统中的默认文件系统。`XFS`于2001年移植到Linux内核。截至2014年6月，大多数Linux发行版均支持`XFS`，其中一些发行版将其用作默认文件系统。
@@ -203,7 +202,7 @@
 
   `F2FS`针对闪存做了多种优化，例如使用检查点方案来维护文件系统的完整性，并在后台闲置时进行清理碎片。
 
-#### SPDK 存储应用开发套件
+### SPDK 存储应用开发套件
 
 `SPDK（Storage Performance Development Kit）`提供了一组用于编写高性能、可伸缩、用户态存储应用程序的工具和库。
 
@@ -214,22 +213,8 @@
 
 最后，`SPDK`提供`NVMe-oF`,`iSCSI`,和`vhost`。在这些组件之上构建的服务器,能够通过网络或其他进程为磁盘提供服务。`NVMe`和`iSCSI`的标准Linux内核启动器与这些target交互, 以及与`QEMU`和虚拟主机进行交互。与其他实现相比，这些服务器的CPU效率可以提高一个数量级。这些target可以用作实现高性能存储目标的范例，也可以用作生产部署的基础。
 
-### 参考文献
+## 参考文献
 
-<<<<<<< HEAD
- - File system. (2021, March 29). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/File_system/
- - NVM express. (2021, March 26). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/NVM_Express
- - White papers. (2016, August 05). Retrieved April 14, 2021, from https://nvmexpress.org/white-papers/
- - Y. T. Jin, S. Ahn and S. Lee, "Performance Analysis of NVMe SSD-Based All-flash Array Systems," 2018 IEEE International Symposium on Performance Analysis of Systems and Software (ISPASS), Belfast, UK, pp. 12-21, 2018.
- - A. Tavakkol et al., "FLIN: Enabling Fairness and Enhancing Performance in Modern NVMe Solid State Drives," 2018 ACM/IEEE 45th Annual International Symposium on Computer Architecture (ISCA), Los Angeles, CA, USA, pp. 397-410, 2018.
- - Y. Tu, Y. Han, Z. Chen, Z. Chen and B. Chen, "URFS: A User-space Raw File System based on NVMe SSD," 2020 IEEE 26th International Conference on Parallel and Distributed Systems (ICPADS), Hong Kong, pp. 494-501, 2020.
- - 看文件系统结构如何降低nvme性能. (2019, January 02). Retrieved April 14, 2021, from https://searchstorage.techtarget.com.cn/6-27904/
- - XFS. (2021, March 04). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/XFS
- - Ext4. (2020, December 18). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/Ext4
- - F2FS. (2021, March 02). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/F2FS
- - Written by Michael Larabel in Storage on 7 January 2019. Page 1 of 4. 61 Comments. (2019, January 7). Linux 5.0 File-System Benchmarks: Btrfs vs. ext4 VS. F2FS Vs. xfs. Retrieved April 14, 2021, from https://www.phoronix.com/scan.php?page=article&item=linux-50-filesystems&num=1
- - Storage performance development kit. Retrieved April 14, 2021, from https://spdk.io/
-=======
 - File system. (2021, March 29). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/File_system/
 
 - NVM express. (2021, March 26). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/NVM_Express
@@ -253,4 +238,3 @@
 - Written by Michael Larabel in Storage on 7 January 2019. Page 1 of 4. 61 Comments. (2019, January 7). Linux 5.0 File-System Benchmarks: Btrfs vs. ext4 VS. F2FS Vs. xfs. Retrieved April 14, 2021, from https://www.phoronix.com/scan.php?page=article&item=linux-50-filesystems&num=1
 
 - Storage performance development kit. Retrieved April 14, 2021, from https://spdk.io/
->>>>>>> 13b01ff1da14ae130872dadae5ee2459bbbd2edb
