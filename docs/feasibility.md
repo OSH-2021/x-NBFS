@@ -3,12 +3,21 @@
 - [可行性报告](#可行性报告)
   - [项目介绍](#项目介绍)
   - [理论依据](#理论依据)
-    - [文件系统](#文件系统)
-    - [NVMe](#nvme)
-    - [FUSE](#fuse)
+    - [内核文件系统和用户态文件系统](#内核文件系统和用户态文件系统)
+      - [FUSE简介](#fuse简介)
+      - [选择FUSE的原因](#选择fuse的原因)
+    - [各类面向NVMe SSD 的用户态框架、驱动及文件系统](#各类面向nvme-ssd-的用户态框架驱动及文件系统)
+      - [SPDK及相应的文件系统](#spdk及相应的文件系统)
+      - [NVMeDirect及相应的文件系统](#nvmedirect及相应的文件系统)
+      - [UNVMe及相应的文件系统](#unvme及相应的文件系统)
+      - [其它面向NVMe SSD的用户态文件系统](#其它面向nvme-ssd的用户态文件系统)
   - [技术依据](#技术依据)
     - [SPDK](#spdk)
+      - [SPDK简介](#spdk简介)
+      - [选择SPDK的原因](#选择spdk的原因)
     - [NVFUSE](#nvfuse)
+      - [NVFUSE简介](#nvfuse简介)
+      - [选择NVFUSE的原因](#选择nvfuse的原因)
     - [测试工具](#测试工具)
   - [技术路线](#技术路线)
     - [文件系统设计](#文件系统设计)
@@ -26,57 +35,64 @@
 
 ## 理论依据
 
-### 文件系统
+### 内核文件系统和用户态文件系统
 
-文件系统是操作系统用于明确存储设备或分区上的文件的方法和数据结构，即在存储设备上组织文件的方法。操作系统中负责管理和存储文件信息的软件机构称为文件管理系统，简称文件系统。文件系统由三部分组成：
+传统上操作系统在内核层面上对文件系统提供支持，但通常内核态的代码难以调试，内核下定制开发文件系统难度较高，生产率较低，在用户空间可定制实现文件系统是有需求的。并且用户空间下调试工具丰富，出问题不会导致系统崩溃，开发难度相对较低，开发周期较短。于是，用户态文件系统FUSE成为当下的热门研究方向。
 
- - 文件系统的接口
- - 对对象操纵和管理的软件集合
- - 对象及属性
-
-从系统角度来看，文件系统是对文件存储设备的空间进行组织和分配，负责文件存储并对存入的文件进行保护和检索的系统。具体地说，它负责为用户建立文件，存入、读出、修改、转储文件，控制文件的存取，当用户不再使用时撤销文件等。
-
-文件系统使用文件和树形目录的抽象逻辑概念代替了硬盘和光盘等物理设备使用数据块的概念，用户使用文件系统来保存数据不必关心数据实际保存在硬盘（或者光盘）的地址为多少的数据块上，只需要记住这个文件的所属目录和文件名。在写入新数据之前，用户不必关心硬盘上的那个块地址没有被使用，硬盘上的存储空间管理（分配和释放）功能由文件系统自动完成，用户只需要记住数据被写入到了哪个文件中。
-
-**主要属性**
-文件系统是一种用于向用户提供底层数据访问的机制。它将设备中的空间划分为特定大小的块（或者称为簇），一般每块512字节。数据存储在这些块中，大小被修正为占用整数个块。由文件系统软件来负责将这些块组织为文件和目录，并记录哪些块被分配给了哪个文件，以及哪些块没有被使用。不过，文件系统并不一定只在特定存储设备上出现。它是数据的组织者和提供者，至于它的底层，可以是磁盘，也可以是其它动态生成数据的设备（比如网络设备）。
-- *文件名*：在文件系统中，文件名是用于定位存储位置。大多数的文件系统对文件名的长度有限制。在一些文件系统中，文件名是大小写不敏感；在另一些文件系统中则大小写敏感。大多现今的文件系统允许文件名包含非常多的`Unicode`字符集的字符。然而在大多数文件系统的界面中，会限制某些特殊字符出现在文件名中。
-- *元数据*：其它文件保存信息常常伴随着文件自身保存在文件系统中。文件长度可能是分配给这个文件的区块数，也可能是这个文件实际的字节数。文件最后修改时间也许记录在文件的时间戳中。有的文件系统还保存文件的创建时间，最后访问时间及属性修改时间。
-- *安全访问*：针对基本文件系统操作的安全访问可以通过访问控制列表或`capabilities`实现。研究表明访问控制列表难以保证安全，这也就是研发中的文件系统倾向于使用`capabilities`的原因。然而目前多数商业性的文件系统仍然使用访问控制列表。
-
-### NVMe
-
-`NVM Express(NVMe)`，或称非易失性内存主机控制器接口规范`(Non-Volatile Memory Host Controller Interface Specification)`，是一个逻辑设备接口规范。它是基于设备逻辑接口的总线传输协议规范（相当于通讯协议中的应用层），用于访问通过`PCI Express(PCIe)`总线附加的非易失性存储器介质（例如采用闪存的固态硬盘驱动器），虽然理论上不一定要求`PCIe`总线协议。`NVMe`是一种协议，是一组允许`SSD`使用`PCIe`总线的软硬件标准；而`PCIe`是实际的物理连接通道。
-
-此规范主要是为基于闪存的存储设备提供一个低延时、内部并发化的原生界面规范，也为现代CPU、电脑平台及相关应用提供原生存储并发化的支持，令主机硬件和软件可以充分利用固态存储设备的并行化存储能力。相比此前机械硬盘驱动器`(HDD)`时代的`AHCI`（`SATA`下的协议），`NVMe`降低了I/O操作等待时间、提升同一时间内的操作数、更大容量的操作队列等。
-
-**`NVMe`工作原理**
-`NVMe`使用的增强型`NVMHCI`基于成对的提交和完成队列机制：指令由主机软件放置在提交队列中。完成内容放入关联的控制器完成队列。多个提交队列可以利用相同的完成队列。提交和完成队列分配在主机内存中。存在用于设备管理目的的`Admin`提交和关联的完成队列和控制-例如创建和删除I/O提交和完成队列，中止命令，等等。只有属于管理命令集的命令才可以发布到管理提交中队列。
-
-`NVMe`要求I/O命令集与I/O队列一起使用。该规范定义了一个I/O命令集，被命名为`NVM Command Set`。
-
-主机软件会创建队列，最多不超过控制器支持的队列。通常数量创建的命令队列基于系统配置和预期的工作量。例如，在基于四核处理器的系统上，每个核可能有一个队列对`（queue pair）`，以避免锁定并确保数据结构是在适当的处理器内核的缓存中创建的。下图提供了图形队列机制的表示形式，显示了“提交队列”与“完成队列”之间的1：1映射完成队列。
-
-### FUSE
-
+#### FUSE简介
 用户空间文件系统（`Filesystem in Userspace`，简称`FUSE`）是一个面向类`Unix`计算机操作系统的软件接口，它使无特权的用户能够无需编辑内核代码而创建自己的文件系统。
 
-**为什么需要`FUSE`？**
-现存文件系统难以满足用户的特别需求。传统上操作系统在内核层面上对文件系统提供支持，但通常内核态的代码难以调试，内核下定制开发文件系统难度较高，生产率较低，在用户空间可定制实现文件系统是有需求的。并且，用户空间下调试工具丰富，出问题不会导致系统崩溃，开发难度相对较低，开发周期较短。
-
-**工作原理**
 `FUSE`包含两个组件：内核模块（在常规系统内核存储库中维护）和用户空间库（`libfuse`）。`FUSE`文件系统通常实现为与`libfuse`链接的独立应用程序。`libfuse`提供了以下功能：挂载文件系统，卸载文件系统，从内核读取请求以及将响应发送回。
 
 在`Linux`中，对文件的访问都是统一通过VFS层提供的内核接口进行的（比如`open/read`），因此当一个进程（称为`"user"`）访问用户态文件系统时，依然需要途径`VFS`。当`VFS`接到`user`进程对文件的访问请求，并且判断出该文件是属于某个用户态文件系统，就会将这个请求转交给一个名为`"fuse"`的内核模块；而后，`"fuse"`将该请求传给用户态进程（如下图）。
 
 ![fuse](/docs/files/2_fuse.png)
 
-`FUSE`作为用户态文件系统使用、调试方便，但由于其额外的内核态/用户态切换会影响性能。**因此在这里我们需要在使用`FUSE`的同时利用`SPDK`的特性，即可以在用户态直接向`NVMe SSD`提交I/O请求，从而使得文件系统在简便的同时兼顾高效。**
+`FUSE`作为用户态文件系统使用、调试方便，但由于其额外的内核态/用户态切换会影响性能。
+
+#### 选择FUSE的原因
+
+对于针对`NVMe`优化的文件系统，我们选择采用**用户态文件系统**来实现，原因如下：
+
+- **相比于内核态文件系统，基于用户态的文件系统便于开发与调试；**
+- **传统的内核态文件系统过于厚重，频繁的内核态与用户态文件的拷贝将严重影响效率；**
+- **利用SPDK的特性，我们可以在用户态直接向NVMe SSD提交I/O请求，从而规避FUSE额外的内核态、用户态切换，真正提高效率。**
+
+### 各类面向NVMe SSD 的用户态框架、驱动及文件系统
+
+传统的内核态文件系统存在拷贝、上下文切换以及中断等方面的开销，因此, 轻薄高效的用户态文件系统逐渐成为研究热点。近年来, 一些面向`NVMe SSD`的用户态框架、驱动及文件系统被相继提出。
+
+#### SPDK及相应的文件系统
+
+`Intel`公司提出针对高性能`NVMe SSD`设备的存储性能开发工具包`SPDK`, 将所有必需的驱动程序移动到用户空间, 避免系统调用, 并允许从应用程序进行零拷贝访问, 通过轮询方式检查操作完成情况, 以降低延迟, 通过消息传递机制来避免I/O路径中的锁冲突。以下是多种基于`SPDK`的文件系统：
+
+- `BLOBFS`是基于`SPDK`实现的用户态文件系统, 功能较为简单, 没有提供齐全的`POSIX`接口, 不提供对目录的支持, 不支持原地址更新, 只能被一个进程独享使用。
+- `BlueStore`是一个针对`SSD`特性优化的存储引擎, 其中包含一个轻量级的文件系统`BLUEFS`, 并含有用户态块设备抽象层`NVMEDevice`, 调用`SPDK`的用户态块设备驱动。
+与`BLOBFS`相似,`BLUEFS`只提供少量文件接口, 只支持顺序写和两层目录, 只能被一个进程独享使用。
+- `kongseok`提出基于`SPDK`的`NVMe Driver`的用户态文件系统`NVFUSE`, 使用类似 `Ext3`的文件系统布局, 并计划通过实现轻量级日志, 来进行文件系统的一致性管理, 目前开发不活跃。
+- `DashFS`是一种利用进程间通信机制的用户态文件系统, 同样是基于`SPDK`开发, 仅提供简单的文件操作, 不支持目录, 不考虑崩溃一致性, 研究重点在于通过微内核参与的方式实现进程的信任和安全认证, 但缺乏页缓存机制, 访问性能存在一定的提升空间, 并且缺乏对进程的死锁检测机制。
+
+#### NVMeDirect及相应的文件系统
+
+`Kim`等提出用户级I/O框架`NVMeDirect`,通过允许用户应用程序直接访问存储设备来提高性能。与`SPDK`不同,`NVMeDirect`可以与内核的传统I/O堆栈共存,以便现有基于内核的应用程序可以在不同的分区上与`NVMeDirect`应用程序同时使用同一个`NVMe SSD`。
+
+`NVMeDirect`提供队列管理, 每个用户应用程序可根据其I/O特性和需要来选择自己的I/O策略。`NVMeDirect`框架比`SPDK`框架简单, 框架线程直接操作设备的I/O队列。然而,`NVMeDirect`是一个用户态调度的框架, 使用起来不方便。
+
+`ForestFS`是`NVMeDirect`支持的用户态文件系统, 使用`ForestDB`进行文件系统元数据管理。与`BLOBFS`相比,`ForestFS`支持多级目录和原地更新, 但代码量小, 功能较为简单。
+
+#### UNVMe及相应的文件系统
+`Micron`公司提出面向`NVMe SSD`的用户态驱动`UNVMe`, 驱动和客户端应用合并在一个进程内, 性能较好, 但限制一个`NVMe`设备在同一时刻只能被一个应用程序访问。基于`UNVMe`, `Micron`公司提出`UNFS`, 但只支持同步接口, 不支持异步接口, 不提供崩溃一致性保证。
+
+#### 其它面向NVMe SSD的用户态文件系统
+除此之外, 还有很多面向`NVMe SSD`的用户态文件系统, 包括`Rustfs`, `Moneta-D`, `CRUISE`, `BurstFS`, `SCFS`和`BlueSky`等, 但它们尚未开源，因此在本项目中不做讨论。
+
+**综上所述, 面向 NVMe SSD 的用户态框架、驱动和文件系统的优势在于, 支持零拷贝, 以轮询方式访问来减少中断, 并针对 SSD 的某些特性做了相关的优化, 可以减少软件带来的开销。存在的共性问题在于文件系统布局无法兼顾空间利用率和读写性能, 未充分利用 NVMe SSD 多队列特性的性能优势, 难以支持多个应用程序对 SSD 的高效共享访问, 这些都制约了 NVMe SSD 的发展。**
 
 ## 技术依据
 
 ### SPDK
 
+#### SPDK简介
 `The Storage Performance Development Kit`（`SPDK`）提供了一套工具和库，用于编写高性能、可扩展的用户模式存储应用程序。它通过使用一些关键技术来实现高性能：
 
 - 将所有必要的驱动程序移入用户空间。这样可以避免系统调用，并实现应用程序的零拷贝访问。
@@ -89,7 +105,15 @@
 
 最后，`SPDK`提供了建立在这些组件之上的`NVMe-oF`、`iSCSI`和`vhost`服务器，它们能够通过网络或向其他进程提供磁盘服务。`NVMe-oF`和`iSCSI`的标准`Linux`内核启动器可以与这些目标互操作，`QEMU`也可以与`vhost`互操作。这些服务器的CPU的执行效率可以比其他实现高出一个数量级。这些目标可以作为如何实现高性能存储目标的例子，或者作为生产部署的基础。
 
+#### 选择SPDK的原因
+
+- `SPDK`通过针对性的优化，例如驱动程序移入用户空间、采用轮询等，能充分利用`NVMe`的性能；
+- 由于`SPDK`直接与`NVMe`设备通信，能规避用户态文件系统`FUSE`多次内核态与用户态切换造成的性能损失。
+
 ### NVFUSE
+
+#### NVFUSE简介
+
 `NVFUSE`是一个结合了`SPDK`库的可嵌入的文件系统。`SPDK`库是英特尔最新推出的用户空间的`NVMe`驱动。使用了这种文件系统的应用可以直接提交I/O请求给`NVMe`的`SSD`。它提高了硬盘的性能和可靠性，还提供了类`POSIX`的接口（如`nvfuse_open`, `nvfuse_read`, `nvfue_write`, `nvfuseclose`这样的函数）。注意这个文件系统并不是利用众所周知的`FUSE`(`File System in Userspace`)库来实现`POSIX`的兼容性。
 
 主要特性如下：
@@ -97,6 +121,11 @@
 - 作为库的可嵌入的文件系统，引进了类似`POSIX API`的新接口。
 - 简单的文件系统布局，与`EXT`系列文件系统（如`EXT3`）相同。
 - 通过`NVMe`规范所描述的`NVMe`元数据功能，改善了日志记录机制，提高了文件系统一致性和耐久性。
+
+#### 选择NVFUSE的原因
+
+`NVFUSE`是基于`SPDK`构建的文件系统，而且在用户空间中运行，与我们的方向相适应，适合作为我们所要设计的文件系统的基础，也便于之后使用`SPDK`进一步进行应用方面的优化。
+
 
 ### 测试工具
 
@@ -119,13 +148,34 @@
 
 ### 文件系统设计
 
-我们将要设计一个基于`FUSE`和`SPDK`的用户态文件系统，其主要应用于优化文件系统在`NVMe SSD`上的文件速度:
-1. 通过结合`libfuse`便于设计用户态文件系统和`spdk`支持用户态直接提交I/O请求的特点，初步构建一个提供`POSIX`类似的`API`和类似`EXT4`文件结构架构的文件系统
+**Step1 通过FUSE搭建一个用户态文件系统，其文件结构采用类似EXT4的方式设计**
 
-2. 结合`NVMe`的特性，设计算法优化文件系统的应用（以下为初步的设计思路）：
-	 - 传统文件系统不支持共享访问`SSD`，因此可以通过管理维护共享内存，使得多个应用程序可以访问多个`NVMe SSD`，从而加速访问`SSD`的性能；
-	 - 在`Linux`内核中当前的`NVMe`驱动程序会为主机系统中的每个内核创建一个提交队列和一个完成队列，在我们的系统中，可以设计算法灵活分配IO，并根据工作负载类别动态评估分离到不同的队列中；
-	 - 在保证性能的同时兼顾调度的效率与公平性，可以类比网络领域的`WDQ`,`SFQ`算法或一些软实时调度程序，如`SCAN-EDF`和`Horizon`。
+`FUSE`文件系统通常实现为与`libfuse`链接的独立应用程序。`libfuse`提供了挂载文件系统，卸载文件系统，从内核读取请求以及将响应返回的功能。`libfuse`提供了两个`API`：“高级”同步`API`和“低级”异步`API`。在这两种情况下，来自内核的传入请求都使用回调传递给主程序。
+
+在我们的文件系统中，我们将通过"低级"`API`，即回调函数需与`inode`一起使用。	
+
+通过`FUSE`的`API`我们将重新设计`mkdir`, `mknod`, `truncate`, `read`, `write`等基本文件操作，以及一些更底层的`inode`设置以及中断、管道和信号量的配置函数。
+
+**Step2 在基本设计完成一个用户态文件系统后，通过SPDK改进其读写等操作性能**
+
+由于上述文件系统底层仍通过`FUSE`所设计的`用户请求 -> VFS -> FUSE内核模块 -> 原路返回`的过程，因此并不能提升性能。我们将会参考`NVFUSE`的设计方式，通过修改用户态文件系统和部分`FUSE`系统函数，结合`SPDK`在用户态就可以发送I/O请求的特性，对文件系统的进行改进，使其加速在`NVMe SSD`上的文件操作。
+
+例如对于`write`函数，在已经实现好的用户态文件系统中，是根据我们定义的模式调用`FUSE`提供的内核程序写数据到存储器，在经过这一步修改之后，就可以调用`SPDK`提供的`spdk_bdev_write()`程序直接将数据写入到设备。
+
+![Design](/docs/files/Design.png)
+
+**Step3 通过各种算法改进文件系统在NVMe SSD上的性能**
+
+多篇学术界权威论文指出，优化我们的文件系统可以从下面几个部分入手：
+
+- 传统文件系统不支持共享访问`SSD`，因此可以通过管理维护共享内存，使得多个应用程序可以访问多个`NVMe SSD`，从而加速访问`SSD`的性能；
+- 在`Linux`内核中当前的`NVMe`驱动程序会为主机系统中的每个内核创建一个提交队列和一个完成队列，在我们的系统中，可以设计算法灵活分配I/O，并根据工作负载类别动态评估分离到不同的队列中；
+- 在保证性能的同时兼顾调度的效率与公平性，可以类比网络领域的`WDQ`, `SFQ`算法或一些软实时调度程序，如`SCAN-EDF`和`Horizon`。
+
+**Step4 测试文件系统**
+
+上文已经给出了多种测试程序，在设计并优化好文件系统后，我们将运行多种测试程序和测试集来测试文件系统的性能。具体测试参数将在本节最后一部分给出。
+
 	
 ### FUSE使用
 
@@ -266,6 +316,21 @@ fuse_user on /tmp/file_on_fuse_fs type fuse.fuse_user (rw,nosuid,nodev)
 >   nvme0n1: ios=0/0, merge=0/0, ticks=0/0, in_queue=0, util=0.00%
 > ```
 
+文件系统的性能与使用场景有关。例如:
+
+- 设备启动时对大量小文件的读取
+- 安装应用程序对大量小文件的写入
+- 备份数据库对单个大文件的复制
+
+这些操作对硬盘的要求是不同的。为实现对不同环境的模拟，我们将使用不同的参数来进行测试。测试中考虑的环境参数包括：
+
+- 读写方式（随机/连续）
+- 用于并行I/O的线程数
+- 用于测试I/O量大小
+- 测试时间等
+
+为便于对比，我们将在同一块支持NVMe的硬盘上，对不同的文件系统分别进行测试。
+
 ## 参考文献
 
 * File system. (2021, March 29). Retrieved April 14, 2021, from https://en.wikipedia.org/wiki/File_system/.
@@ -281,4 +346,19 @@ fuse_user on /tmp/file_on_fuse_fs type fuse.fuse_user (rw,nosuid,nodev)
 * P. Goyal, H. M. Vin, and H. Cheng. "Start-time fair queuing: A scheduling algorithm for integrated services packet switching networks", Technical Report CS-TR-96-02, UT Austin, January, 1996.
 * A. L. N. Reddy and J. Wyllie, "Disk scheduling in a multimedia I/O system", Proc. of the 1st ACM international conference on Multimedia, pp. 225-233, 1993.
 * A. Povzner, D. Sawyer and S. A. Brandt, "Horizon: efficient deadlinedriven disk I/O management for distributed storage systems", In Proc. of the 19th International Symposium on High Performance Distributed Computing, pp. 1-12, 2010.
-
+* Yang Ziye, Harris J R, Walker B, et al. SPDK: a development kit to build high performance storage applications // Proceedings of the IEEE International Conference on Cloud Computing Technology and Sci-ence. Hong Kong, 2017: 154–161
+* Weil S A. Goodbye XFS: building a new faster storage backend for ceph [EB/OL]. (2017–09–12) [2020–02–01]. https://www.snia.org/sites/default/files/DC/2017/presentations/General_Session/Weil_Sage%20_Red_Hat_Goodbye_XFS_Building_a_new_faster_storage_backend_for_Ceph.pdf
+* Lee D Y, Jeong K, Han S H, et al. Understanding write behaviors of storage backends in ceph object store. Proceedings of the IEEE International Con-ference on Massive Storage Systems and Technology. Santa Clara, CA, 2017: 1–10
+* Yongseok O. NVMe based file system in user-space [EB/OL]. (2018–12–09) [2020–02–01]. https://github.com/NVFUSE/NVFUSE
+* Liu J, Andrea C A, Remzi H, et al. File systems as processes. Proceedings of the 11th USENIX Work-shop on Hot Topics in Storage and File Systems. Ber-keley, 2019: No. 14
+* Kim H J, Lee Y S, Kim J S. NVMeDirect: a user-space I/O framework for application-specific optimi-zation on NVMe SSDs. Proceedings of the 8th USENIX Workshop on Hot Topics in Storage and File Systems. Berkeley, 2016: 41–45
+* Kim H J. NVMeDirect _v2 forestfs [EB/OL]. (2018–05–03) [2020–02–01].http://github.com/nvmedirect/nvmedirect_v2/tree/master/forestfs
+* Ahn J S, Seo C, Mayuram R, et al. ForestDB: a fast key-value storage system for variable-length string keys. IEEE Transactions on Computers, 2015, 65(3): 902–915
+* Mircon Technology Inc. UNMe [EB/OL]. (2019–05–02) [2020–02–01]. https://github.com/MicronSSD/unvme
+* Mircon Technology Inc. User space nameless file-system [EB/OL]. (2017–04–07) [2020–02–01]. https://github.com/MicronSSD/UNFS
+* Hu Z, Chidambaram V. A rust user-space file system [EB/OL]. (2019–05–08) [2020–02–01]. https://github.com/utsaslab/rustfs
+* Caulfield A M, Mollov T I, Eisner L A, et al. Provi-ding safe, user space access to fast, solid state disks. ACM SIGARCH Computer Architecture News, 2012, 40(1): 387–400
+* Rajachandrasekar R, Moody A, Mohror K,et al. A 1 PB/s file system to checkpoint three million MPI tasks. Proceedings of the 22nd ACM International Symposium on High-Performance Parallel and Distri-buted Computing. New York, 2013: 143–154
+* Wang T, Mohror K, Moody A, et al. An ephemeral burst-buffer file system for scientific applications. Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis. Salt Lake City, 2016: 807–818
+* Bessani A, Mendes R, Oliveira T, et al. SCFS: a shared cloud-backed file system. Proceedings of the USENIX Annual Technical Conference. Berkeley, 2014: 169–180
+* Vrable M, Savage S, Voelker G M. BlueSky: a cloud-backed file system for the enterprise. Proceedings of the 10th USENIX Conference on File and Storage Technologies. Berkeley, 2012: 1–14
