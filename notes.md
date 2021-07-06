@@ -76,10 +76,15 @@
 #### [`hello_bdev`代码](https://github.com/spdk/spdk/blob/master/examples/bdev/hello_world/hello_bdev.c)分析
 
 - `struct spdk_app_opts`: 是事件框架的初始化选项，通过调用[`spdk_app_opts_init(opts,sizeof(opts)) `]((https://spdk.io/doc/event_8h.html#a65555def11b52c0b7bea010ab24e25d8))可以生成初始值，包含了基本的名称、配置等信息
+
 - `int spdk_app_start(struct spdk_app_opts *opts_user, spdk_msg_fn start_fn, void *ctx)`: 根据已经初始化的`opts`开始运行`spdk`框架，开始之后会运行`start_fn`函数（新线程），函数参数为`ctx`，且函数本体阻塞直到出错或退出。
+
 - `int spdk_bdev_open_ext (const char *bdev_name, bool write, spdk_bdev_event_cb_t event_cb, void *event_ctx, struct spdk_bdev_desc **desc)`: 打开一个block device 用于IO操作，其中的`spdk_bdev_event_cb_t `是用于处理特殊事件状态的函数指针，**`desc`是块设备的描述符**
+
 - `spdk_bdev_desc_get_bdev(), spdk_bdev_get_io_channel(), spdk_bdev_get_block_size(), spdk_bdev_get_buf_align()`: 根据块设备描述符获取块设备结构体、`io_channel`结构体，根据块设备结构体获取块的大小或最小IO Buffer地址对齐（以字节为单位）
+
 - `void* spdk_dma_zmalloc (size_t size, size_t align, uint64_t *phys_addr)`: 分配一个具有给定大小和对齐方式的固定内存缓冲区，缓冲区将被初始为0；`phys_addr`用于记录分配的内存物理地址（可置为NULL丢弃该值）
+
 - `bool spdk_bdev_is_zoned()`: 检查块设备是否支持分区命名空间
 
 - `int spdk_bdev_zone_management()`: 向块设备提交一个分区管理请求，返回值可能为0（成功），或`-ENOMEM`表示IO缓冲暂时无法分配（需要等待），程序中有这样一段处理方法：
@@ -113,6 +118,75 @@
   - `void spdk_app_fini (void)`: 完整事件框架的最后一步，关闭`spdk app`
 
   `hello_bdev`代码逻辑（其实可以画个流程图但是我累了**`orz`**）：先初始化`app_opts`并用此调用`spdk_app_start`开启app, 之后start函数会阻塞，而子线程会执行所调用的函数。之后程序依次打开（类似文件操作的`open`），获取`bdev, desc, io_channel`等参数，写数据，读数据，最后释放资源。
+
+#### `hello_blob`运行
+
+使用以下命令运行程序（`hello_blob.json`放在`examples/blob/hello_world/`路径下）
+
+> `sudo ./hello_blob hello_blob.json`
+
+程序输出：
+
+> ```
+> [2021-07-06 00:54:14.555120] hello_blob.c: 451:main: *NOTICE*: entry
+> [2021-07-06 00:54:14.556173] Starting SPDK v21.07-pre git sha1 eb5a11139 / DPDK 21.02.0 initialization...
+> [2021-07-06 00:54:14.556313] [ DPDK EAL parameters: [2021-07-06 00:54:14.557067] hello_blob [2021-07-06 00:54:14.557561] --no-shconf [2021-07-06 00:54:14.558023] -c 0x1 [2021-07-06 00:54:14.558065] --log-level=lib.eal:6 [2021-07-06 00:54:14.558135] --log-level=lib.cryptodev:5 [2021-07-06 00:54:14.558221] --log-level=user1:6 [2021-07-06 00:54:14.558254] --iova-mode=pa [2021-07-06 00:54:14.559002] --base-virtaddr=0x200000000000 [2021-07-06 00:54:14.559043] --match-allocations [2021-07-06 00:54:14.559073] --file-prefix=spdk_pid816 [2021-07-06 00:54:14.559103] ]
+> EAL: No legacy callbacks, legacy socket not created
+> [2021-07-06 00:54:14.586386] app.c: 535:spdk_app_start: *NOTICE*: Total cores available: 1
+> [2021-07-06 00:54:15.654513] reactor.c: 929:reactor_run: *NOTICE*: Reactor started on core 0
+> [2021-07-06 00:54:15.656143] accel_engine.c: 853:spdk_accel_engine_initialize: *NOTICE*: Accel engine initialized to use software engine.
+> [2021-07-06 00:54:16.896210] hello_blob.c: 414:hello_start: *NOTICE*: entry
+> [2021-07-06 00:54:16.897941] hello_blob.c: 373:bs_init_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898099] hello_blob.c: 381:bs_init_complete: *NOTICE*: blobstore: 0x55bec8d6b4b0
+> [2021-07-06 00:54:16.898157] hello_blob.c: 360:create_blob: *NOTICE*: entry
+> [2021-07-06 00:54:16.898262] hello_blob.c: 339:blob_create_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898360] hello_blob.c: 347:blob_create_complete: *NOTICE*: new blob id 4294967296
+> [2021-07-06 00:54:16.898458] hello_blob.c: 308:open_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898505] hello_blob.c: 319:open_complete: *NOTICE*: blobstore has FREE clusters of 15
+> [2021-07-06 00:54:16.898555] hello_blob.c: 285:resize_complete: *NOTICE*: resized blob now has USED clusters of 15
+> [2021-07-06 00:54:16.898649] hello_blob.c: 261:sync_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898707] hello_blob.c: 223:blob_write: *NOTICE*: entry
+> [2021-07-06 00:54:16.898752] hello_blob.c: 206:write_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898795] hello_blob.c: 181:read_blob: *NOTICE*: entry
+> [2021-07-06 00:54:16.898840] hello_blob.c: 154:read_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.898935] hello_blob.c: 168:read_complete: *NOTICE*: read SUCCESS and data matches!
+> [2021-07-06 00:54:16.899022] hello_blob.c: 134:delete_blob: *NOTICE*: entry
+> [2021-07-06 00:54:16.900274] hello_blob.c: 115:delete_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.900415] hello_blob.c:  78:unload_complete: *NOTICE*: entry
+> [2021-07-06 00:54:16.952975] hello_blob.c: 487:main: *NOTICE*: SUCCESS!
+> EAL: device event monitor already stopped
+> ```
+
+#### [`hello_blob`代码](https://github.com/spdk/spdk/blob/master/examples/blob/hello_world/hello_blob.c)分析
+
+其打开`app`的方式与`hello_bdev`类似。
+
+- `spdk_bs_init()`: 根据一个块设备初始化一个`blobstore`，注意此处存储块设备的结构体并非上面的`struct spdk_bdev`，而是`struct spdk_bs_bdev`，后者内部包含了各种IO操作函数的函数指针以及一个块设备指针，可以通过函数`spdk_bdev_create_bs_dev_ext`结构体根据`spdk_bdev`创建一个`spdk_bs_bdev`结构体。
+  本函数也采用异步的回调函数设计，`init`完成后会调用回调函数`void(* spdk_bs_op_with_handle_complete) (void *cb_arg, struct spdk_blob_store *bs, int bserrno)`, 其中`cb_arg`为指定的参数，`bs`会返回一个`blobstore`的描述符，`bserrno`是错误标记。
+
+初始化`blobstore`后，需要创建一个`blob`来进行读写操作。
+
+- `spdk_bs_create_blob()`: 根据默认选项创建一个`blob`，其`id`会传递到回调函数
+
+- `spdk_bs_open_blob()`: 根据创建的`blob id`，在`blobstore`上打开它，打开后传递到回调函数的是`struct spdk_blob`的指针，而非`blobid`
+- `spdk_blob_resize(blob,sz,cb_fn,cb_arg)`: 将`blob`重新划为`sz`个`cluster`。初始化后`blob`的`cluster size = 0`，因此需要重新分配才能使用。注意此操作只是在内存中执行（为了效率），需要使用同步函数将数据更新到硬盘上。如果需要使用所有空闲的`cluster`，可以使用函数`spdk_bs_free_cluster_count()`来获取`blobstote`中所有的空闲`cluster`，用函数`spdk_blob_get_num_clusters()`获取`blob`使用的`cluster`.
+- `spdk_blob_sync_md()`: 同步内存和硬盘上的`blob`数据
+
+数据读写的过程：
+
+- `spdk_malloc(size,align,*phys_addr,socket_id,flags)`: 分配一块给定大小、对齐的内存块，用于DMA或共享，注意此函数生成的是内存块，所以不是`spdk`专用的函数也可以用于处理，例如`memset()`。需要用`spdk`提供的函数分配是为了保证写数据时的格式以及DMA功能正确。此外，可通过`spdk_bs_get_io_unit_size(blobstore)`来获取`blobstore`的`io_unit size`（一般为4K或512的页面大小），用于设置`malloc size`
+- `spdk_bs_alloc_io_channel(blobstore)`: 为`blobstore`分配一个`io_channel`
+- `spdk_blob_io_write(blob,channel,write_buff,offset,length,cb_fn,cb_arg)`: 向一个`blob`中写入`write_buff`中包含的数据，注意`offset`和`length`都是以`io_unit`为单位的，这也体现了`blobstore`的原子操作是以页面为单位的
+- `spdk_blob_io_read(blob,channel,read_buff,offset,length,cb_fn,cb_arg)`: 从一个`blob`中读取数据到`read_buff`，和`write_buff`一样, `read_buff`也应该使用`spdk_malloc`分配。
+
+释放与关闭（同样使用`spdk_app_stop`来返回`app`，停止阻塞`spdk_app_start`）：
+
+- `spdk_blob_close(blob,cb_fn,cb_arg)`: 关闭一个`blob`
+- `spdk_bs_free_io_channel(channel)`: 释放一个`io_channel`
+- `spdk_bs_unload(bs,cb_fn,cb_arg)`: 卸载一个`blobstore`并将内存数据更新到SSD
+- `spdk_free(buff)`: 释放由`spdk_malloc`分配的内存块
+
+
 
 ----
 
