@@ -1,5 +1,23 @@
 ## Notes
 
+#### 一些琐碎的tips
+
+- **有关`SSD`内部**
+  - 读写不平衡
+  - SSD向主机开放公共接口，使其看起来像是一组固定大小的块组成，但实际上这些块只是逻辑结构，SSD更新数据时要通过*闪存转换层（ FTL）*将逻辑块映射到物理位置
+  - 垃圾回收机制，SSD通过内部的日志将部分擦除块的数据移动到别的地方
+- **SPDK提交IO请求**：SPDK允许用户提交比硬件队列实际可以容纳的更多请求并自动排队
+- **`bdev`介绍**：SPDK块设备层(`bdev`)，提供实现类似操作系统块存储层的API（该层通常位于
+  传统内核存储堆栈中设备驱动程序的正上方），提供了：
+  - 一种可插拔模块API，用于实现与不同类型的块存储设备接口的块设备。
+  - `NVMe，malloc（ramdisk），Linux AIO，virtio-scsi，Ceph RBD，Pmem 和Vhost-SCSI Initiator`等驱动程序模块。
+  - 用于枚举和声明SPDK 块设备，然后在这些设备上执行操作（读取，写入，取消映射等）
+    的应用程序API。
+  - 堆栈块设备以创建复杂I / O 管道的工具，包括逻辑卷管理（`lvol`）和分区支持（`GPT`）。
+  - 通过JSON-RPC 配置块设备。
+  - 请求排队，超时和重置处理。
+  - 多个无锁队列，用于将I / O 发送到块设备。
+
 #### 如何编译一个使用SPDK的程序
 根据`spdk_root/Makefile`和`spdk_root/mk/spdk.app.mk`中的代码，在`spdk_root`中输入`make`命令后，`spdk.app.mk`会被调用，其中有这样一段：
 
@@ -186,24 +204,41 @@
 - `spdk_bs_unload(bs,cb_fn,cb_arg)`: 卸载一个`blobstore`并将内存数据更新到SSD
 - `spdk_free(buff)`: 释放由`spdk_malloc`分配的内存块
 
+#### 连接自己的硬盘
 
+首先，编译完成`spdk`的程序后，需要使用`scripts/setup.sh`运行`spdk`，若正常则会输出设备名称和地址，例如在vagrant虚拟环境下有：
 
-----
+> `0000:00:0e.0 (80ee 4e56): nvme -> uio_pci_generic`
 
-- **有关`SSD`内部**
-  - 读写不平衡
-  - SSD向主机开放公共接口，使其看起来像是一组固定大小的块组成，但实际上这些块只是逻辑结构，SSD更新数据时要通过*闪存转换层（ FTL）*将逻辑块映射到物理位置
-  - 垃圾回收机制，SSD通过内部的日志将部分擦除块的数据移动到别的地方
+使用`scripts/gen_nvme.sh`可以直接生成用于连接`nvme`设备的配置文件：
 
-- **SPDK提交IO请求**：SPDK允许用户提交比硬件队列实际可以容纳的更多请求并自动排队
+> `sudo ./scripts/gen_nvme.sh --json-with-subsystems > test.json`
 
-- **`bdev`介绍**：SPDK块设备层(`bdev`)，提供实现类似操作系统块存储层的API，提供了：
+生成的`test.json`为：
 
-  - 一种可插拔模块API，用于实现与不同类型的块存储设备接口的块设备。
-  - `NVMe，malloc（ramdisk），Linux AIO，virtio-scsi，Ceph RBD，Pmem 和Vhost-SCSI Initiator`等驱动程序模块。
-  - 用于枚举和声明SPDK 块设备，然后在这些设备上执行操作（读取，写入，取消映射等）
-    的应用程序API。
-  - 堆栈块设备以创建复杂I / O 管道的工具，包括逻辑卷管理（`lvol`）和分区支持（`GPT`）。
-  - 通过JSON-RPC 配置块设备。
-  - 请求排队，超时和重置处理。
-  - 多个无锁队列，用于将I / O 发送到块设备。
+```json
+{
+"subsystems": [
+{
+"subsystem": "bdev",
+"config": [
+{
+"method": "bdev_nvme_attach_controller",
+"params": {
+"trtype": "PCIe",
+"name":"Nvme0",
+"traddr":"0000:00:0e.0"}
+}]}]}
+```
+
+运行测试程序`build/examples/hello_bdev`:
+
+> `sudo ./hello_bdev -c test.json -b Nvme0n1`
+
+可以正确完成程序。（注意此处需要根据`nvme`设备名`Nvme0`设置`bdev`名为`Nvme0n1`）
+
+运行测试程序`build/examples/hello_blob`:
+
+> `sudo ./hello_blob test.json`
+
+可以正确完成程序。（注意需要先将代码中的`Malloc0`改为`Nvme0n1`并重新编译）
