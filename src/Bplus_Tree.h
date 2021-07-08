@@ -1,3 +1,8 @@
+/*
+*   B+ Tree lib file
+*   used for NBFS
+*/
+
 #include "spdk/stdinc.h"
 #include "spdk/blobfs.h"
 
@@ -20,30 +25,34 @@ typedef struct record
     struct spdk_file *file;
 } record;
 
-struct node *find_leaf(node *root, char *key);
-struct record *B_plus_tree_find(node *root, char *key);
+////////////////////////////////////////////////   declaration    ///////////////////////////////////////////////////
+struct node *find_leaf(node *root, const char *key);
+struct record *B_plus_tree_find(node *root, const char *key);
 int get_node_index(node *nd);
 struct record *new_record(struct spdk_file *file);
 struct node *make_new_node(void);
 struct node *make_new_leaf(void);
-struct node *insert_into_node_after_splitting(node *root, node *nd, node *right, int index, char *key);
-struct node *insert_into_parent(node *root, node *left, node *right, char *key);
-struct node *insert_into_leaf_after_splitting(node *root, node *leaf, int index, char *key, record *rec);
+struct node *insert_into_node_after_splitting(node *root, node *nd, node *right, int index, const char *key);
+struct node *insert_into_parent(node *root, node *left, node *right, const char *key);
+struct node *insert_into_leaf_after_splitting(node *root, node *leaf, int index, const char *key, record *rec);
 struct node *adjust_root(node *root);
 void destroy_node(node *nd);
 struct node *delete_entry(node *root, node *nd, int index);
-void *remove_entry(node *nd, int index);
+void remove_entry(node *nd, int index);
 void distribute_nodes(node *nd, node *neighbor, int nd_index);
 struct node *coalesce_nodes(node *root, node *nd, node *neighbor, int nd_index);
-struct node *B_plus_tree_insert(node *root, char *key, struct spdk_file *file);
-struct node *B_plus_tree_remove(node *root, char *key);
+struct node *B_plus_tree_insert(node *root, const char *key, struct spdk_file *file);
+struct node *B_plus_tree_remove(node *root, const char *key);
 struct node *B_plus_tree_initial(void);
 void delete_B_plus_tree(node *root);
 struct record *B_plus_tree_get_first(node *root);
 void traverse_leaves(node *root, void (*fn)(struct spdk_file *file));
+record *B_plus_tree_get_first(node *root);
+record *B_plus_tree_get_next(node *root, struct spdk_file *current);
+bool B_plus_tree_empty(node *root);
+////////////////////////////////////////////////   declaration    ///////////////////////////////////////////////////
 
-//find the leaf node that contains the record matches the key
-node *find_leaf(node *root, char *key)
+node *find_leaf(node *root, const char *key)
 {
     node *temp = root;
     int i = 0;
@@ -59,8 +68,7 @@ node *find_leaf(node *root, char *key)
     return temp;
 }
 
-//find record that matches the key
-record *B_plus_tree_find(node *root, char *key)
+record *B_plus_tree_find(node *root, const char *key)
 {
     node *leaf;
     int i;
@@ -119,7 +127,8 @@ node *make_new_leaf(void)
     return leaf;
 }
 
-node *insert_into_node_after_splitting(node *root, node *nd, node *right, int index, char *key)
+//used for "B_plus_tree_remove" function
+node *insert_into_node_after_splitting(node *root, node *nd, node *right, int index, const char *key)
 {
     int i, split;
     node **temp_ps, *new_nd, *child;
@@ -179,7 +188,8 @@ node *insert_into_node_after_splitting(node *root, node *nd, node *right, int in
     return insert_into_parent(root, nd, new_nd, new_key);
 }
 
-node *insert_into_parent(node *root, node *left, node *right, char *key)
+//used for "B_plus_tree_remove" function
+node *insert_into_parent(node *root, node *left, node *right, const char *key)
 {
     node *parent = left->parent;
     int index;
@@ -219,7 +229,8 @@ node *insert_into_parent(node *root, node *left, node *right, char *key)
     return insert_into_node_after_splitting(root, parent, right, index, key);
 }
 
-node *insert_into_leaf_after_splitting(node *root, node *leaf, int index, char *key, record *rec)
+//used for "B_plus_tree_insert" function
+node *insert_into_leaf_after_splitting(node *root, node *leaf, int index, const char *key, record *rec)
 {
     node *new_leaf;
     record **temp_ps;
@@ -275,6 +286,7 @@ node *insert_into_leaf_after_splitting(node *root, node *leaf, int index, char *
     return insert_into_parent(root, leaf, new_leaf, new_key);
 }
 
+//used for "B_plus_tree_remove" function
 void destroy_node(node *nd)
 {
     free(nd->keys);
@@ -282,6 +294,7 @@ void destroy_node(node *nd)
     free(nd);
 }
 
+//used for "B_plus_tree_remove" function
 node *adjust_root(node *root)
 {
     node *new_root;
@@ -298,7 +311,8 @@ node *adjust_root(node *root)
     return new_root;
 }
 
-void *remove_entry(node *nd, int index)
+//used for "B_plus_tree_remove" function
+void remove_entry(node *nd, int index)
 {
     int i, index_k;
 
@@ -329,6 +343,7 @@ void *remove_entry(node *nd, int index)
     nd->num_keys--;
 }
 
+//used for "B_plus_tree_remove" function
 void distribute_nodes(node *nd, node *neighbor, int nd_index)
 {
     int i;
@@ -399,6 +414,7 @@ void distribute_nodes(node *nd, node *neighbor, int nd_index)
     nd->num_keys++;
 }
 
+//used for "B_plus_tree_remove" function
 node *coalesce_nodes(node *root, node *nd, node *neighbor, int nd_index)
 {
     int i, j, start;
@@ -449,6 +465,7 @@ node *coalesce_nodes(node *root, node *nd, node *neighbor, int nd_index)
     return delete_entry(root, parent, nd_index);
 }
 
+//used for "B_plus_tree_remove" function
 node *delete_entry(node *root, node *nd, int index)
 {
     int min_keys, cap, nd_index;
@@ -478,7 +495,7 @@ node *delete_entry(node *root, node *nd, int index)
 }
 
 //insert a node
-node *B_plus_tree_insert(node *root, char *key, struct spdk_file *file)
+node *B_plus_tree_insert(node *root, const char *key, struct spdk_file *file)
 {
     record *rec = new_record(file);
     node *leaf = find_leaf(root, key);
@@ -486,6 +503,7 @@ node *B_plus_tree_insert(node *root, char *key, struct spdk_file *file)
 
     if (!leaf) // cannot find the leaf, the tree is empty
     {
+
         node *temp = make_new_leaf();
         temp->pointers[0] = rec;
         temp->keys[0] = (char *)malloc(MAX_KEY_LEN);
@@ -500,8 +518,10 @@ node *B_plus_tree_insert(node *root, char *key, struct spdk_file *file)
 
     if (cond == 0) // already have a record that has the same key
         return root;
+
     if (leaf->num_keys < MAX_KEY_NUM)
     {
+
         //insert into leaf node
         for (int i = leaf->num_keys; i > index; i--)
         {
@@ -519,20 +539,23 @@ node *B_plus_tree_insert(node *root, char *key, struct spdk_file *file)
 }
 
 //remove a leaf matches the key
-node *B_plus_tree_remove(node *root, char *key)
+node *B_plus_tree_remove(node *root, const char *key)
 {
     node *leaf;
-    record *rec;
     int i;
     leaf = find_leaf(root, key);
+
     if (leaf == NULL)
         return root;
+
     for (i = 0; i < leaf->num_keys && strcmp(leaf->keys[i], key) != 0; i++)
         ;
+
     if (i == leaf->num_keys) // no such key
         return root;
-    rec = (record *)leaf->pointers[i];
+
     root = delete_entry(root, leaf, i);
+
     return root;
 }
 
@@ -558,6 +581,7 @@ void delete_B_plus_tree(node *root)
     return;
 }
 
+//traverse all of the leaves in the B+ Tree
 void traverse_leaves(node *root, void (*fn)(struct spdk_file *file))
 {
     node *p = root;
@@ -574,6 +598,7 @@ void traverse_leaves(node *root, void (*fn)(struct spdk_file *file))
     return;
 }
 
+//get the first record of the leaves list
 record *B_plus_tree_get_first(node *root)
 {
     node *p = root;
@@ -584,6 +609,30 @@ record *B_plus_tree_get_first(node *root)
     return (record *)p->pointers[0];
 }
 
+//get the next record with the data "current"
+record *B_plus_tree_get_next(node *root, struct spdk_file *current)
+{
+    node *p = root;
+    int find = 0;
+    if (p == NULL)
+        return NULL;
+    while (!p->is_leaf)
+        p = (node *)p->pointers[0];
+    while (p)
+    {
+        for (int i = 0; i < p->num_keys; i++)
+        {
+            if (find == 1)
+                return (record *)p->pointers[i];
+            if (((record *)p->pointers[i])->file == current)
+                find = 1;
+        }
+        p = (node *)p->pointers[MAX_KEY_NUM];
+    }
+    return NULL;
+}
+
+//judge whether the tree is empty
 bool B_plus_tree_empty(node *root)
 {
     if (root->num_keys == 0)
