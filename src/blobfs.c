@@ -1,3 +1,7 @@
+/*
+*	Nvme Better File Systerm
+*	Based on BlobFS
+*/
 #include "spdk/stdinc.h"
 
 #include "spdk/blobfs.h"
@@ -122,10 +126,8 @@ struct spdk_deleted_file
 struct spdk_filesystem
 {
 	struct spdk_blob_store *bs;
-	//B+ Tree test
+	//B+ Tree for files in the filesysterm
 	node *files;
-	//TAILQ_HEAD(, spdk_file)
-	//files;
 	struct spdk_bs_opts bs_opts;
 	struct spdk_bs_dev *bdev;
 	fs_send_request_fn send_request;
@@ -647,10 +649,8 @@ fs_alloc(struct spdk_bs_dev *dev, fs_send_request_fn send_request_fn)
 
 	fs->bdev = dev;
 	fs->send_request = send_request_fn;
-	//TAILQ_INIT(&fs->files);
-	//printf("Here1\n");
 	fs->files = B_plus_tree_initial();
-	//printf("Here2\n");
+	printf("\nWelcome to use Nvme Better File Systerm\n");
 
 	fs->md_target.max_ops = 512;
 	spdk_io_device_register(&fs->md_target, fs_md_channel_create, fs_channel_destroy,
@@ -722,7 +722,7 @@ void spdk_fs_init(struct spdk_bs_dev *dev, struct spdk_blobfs_opts *opt, fs_send
 }
 
 static struct spdk_file *
-file_alloc(struct spdk_filesystem *fs)
+file_alloc(struct spdk_filesystem *fs, char *name)
 {
 	struct spdk_file *file;
 
@@ -749,11 +749,9 @@ file_alloc(struct spdk_filesystem *fs)
 	file->fs = fs;
 	TAILQ_INIT(&file->open_requests);
 	TAILQ_INIT(&file->sync_requests);
-	//TAILQ_INSERT_TAIL(&fs->files, file, tailq);
 	//insert a new file, then the head node of the filesysterm tree will be changed
-	//printf("Here3\n");
-	fs->files = B_plus_tree_insert(fs->files, file->name, file);
-	//printf("Here4\n");
+	fs->files = B_plus_tree_insert(fs->files, name, file);
+	printf("New file create!\n");
 	file->priority = SPDK_FILE_PRIORITY_LOW;
 	return file;
 }
@@ -854,7 +852,7 @@ iter_cb(void *ctx, struct spdk_blob *blob, int rc)
 	{
 		struct spdk_file *f;
 
-		f = file_alloc(fs);
+		f = file_alloc(fs, name);
 		if (f == NULL)
 		{
 			SPDK_ERRLOG("Cannot allocate file to handle deleted file on disk\n");
@@ -987,19 +985,9 @@ unload_cb(void *ctx, int bserrno)
 	struct spdk_fs_request *req = ctx;
 	struct spdk_fs_cb_args *args = &req->args;
 	struct spdk_filesystem *fs = args->fs;
-	struct spdk_file *file, *tmp;
 
-	//printf("Here5\n");
 	traverse_leaves(fs->files, file_free);
-	//printf("Here6\n");
-	//delete_B_plus_tree(fs->_files);
-	//printf("Here7\n");
-
-	//TAILQ_FOREACH_SAFE(file, &fs->files, tailq, tmp)
-	//{
-	//	TAILQ_REMOVE(&fs->files, file, tailq);
-	//	file_free(file);
-	//}
+	printf("Refreshing the filesysterm ...\n");
 
 	free_global_cache();
 
@@ -1037,19 +1025,8 @@ void spdk_fs_unload(struct spdk_filesystem *fs, spdk_fs_op_complete cb_fn, void 
 static struct spdk_file *
 fs_find_file(struct spdk_filesystem *fs, const char *name)
 {
-	struct spdk_file *file;
-	//printf("Here8\n");
 	record *rec = B_plus_tree_find(fs->files, name);
-	//printf("Here9\n");
-	//TAILQ_FOREACH(file, &fs->files, tailq)
-	//{
-	//	if (!strncmp(name, file->name, SPDK_FILE_NAME_MAX))
-	//	{
-	//		if (rec != NULL && rec->file != file)
-	//			printf("Not Match!\n");
-	//		return file;
-	//	}
-	//}
+	printf("Finding File ...\n");
 	if (rec == NULL)
 		return NULL;
 	else
@@ -1218,7 +1195,7 @@ void spdk_fs_create_file_async(struct spdk_filesystem *fs, const char *name, spd
 		return;
 	}
 
-	file = file_alloc(fs);
+	file = file_alloc(fs, name);
 	if (file == NULL)
 	{
 		SPDK_ERRLOG("Cannot allocate new file for creation\n");
@@ -1488,17 +1465,24 @@ static void
 _fs_md_rename_file(struct spdk_fs_request *req)
 {
 	struct spdk_fs_cb_args *args = &req->args;
+	struct spdk_file *f_old;
 	struct spdk_file *f;
 
-	f = fs_find_file(args->fs, args->op.rename.old_name);
-	if (f == NULL)
+	f_old = fs_find_file(args->fs, args->op.rename.old_name);
+	if (f_old == NULL)
 	{
 		args->fn.fs_op(args->arg, -ENOENT);
 		free_fs_request(req);
 		return;
 	}
+	//let f and f_old point to the same file
+	f = f_old;
 
-	free(f->name);
+	//remove old file entry in B+ Tree
+	f->fs->files = B_plus_tree_remove(f_old->fs->files, f_old->name);
+	//insert new file entry in B+ Tree
+	f->fs->files = B_plus_tree_insert(f->fs->files, args->op.rename.new_name, f);
+	printf("File renamed successfully!\n");
 	f->name = strdup(args->op.rename.new_name);
 	_file_build_trace_arg_name(f);
 	args->file = f;
@@ -1620,7 +1604,6 @@ void spdk_fs_delete_file_async(struct spdk_filesystem *fs, const char *name,
 	spdk_blob_id blobid;
 	struct spdk_fs_request *req;
 	struct spdk_fs_cb_args *args;
-	char filename[SPDK_FILE_NAME_MAX];
 
 	SPDK_DEBUGLOG(blobfs, "file=%s\n", name);
 
@@ -1660,15 +1643,15 @@ void spdk_fs_delete_file_async(struct spdk_filesystem *fs, const char *name,
 	}
 
 	blobid = f->blobid;
+
+	char filename[SPDK_FILE_NAME_MAX];
 	strcpy(filename, f->name);
 
 	//delete the file
-	//TAILQ_REMOVE(&fs->files, f, tailq);
 	file_free(f);
 	//delete the record in the tree
-	//printf("Here10\n");
 	fs->files = B_plus_tree_remove(fs->files, filename);
-	//printf("Here11\n");
+	printf("Delete file successfully!\n");
 	//delete the blob of the file
 	spdk_bs_delete_blob(fs->bs, blobid, blob_delete_cb, req);
 }
@@ -1732,15 +1715,8 @@ spdk_fs_iter
 spdk_fs_iter_first(struct spdk_filesystem *fs)
 {
 	record *rec;
-	//printf("Here12\n");
 	rec = B_plus_tree_get_first(fs->files);
-	//printf("Here13\n");
-	//struct spdk_file *f;
-
-	//f = TAILQ_FIRST(&fs->files);
-	//if (rec != NULL && rec->file != f)
-	//	printf("Not Match!\n");
-	//return f;
+	printf("Get first file statistics!\n");
 
 	if (rec == NULL)
 		return NULL;
@@ -1752,14 +1728,17 @@ spdk_fs_iter
 spdk_fs_iter_next(spdk_fs_iter iter)
 {
 	struct spdk_file *f = iter;
+	record *rec;
 
 	if (f == NULL)
-	{
 		return NULL;
-	}
 
-	f = TAILQ_NEXT(f, tailq);
-	return f;
+	rec = B_plus_tree_get_next(f->fs->files, f);
+	printf("Get next file statistics!\n");
+	if (rec == NULL)
+		return NULL;
+	else
+		return rec->file;
 }
 
 const char *
