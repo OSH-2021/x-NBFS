@@ -1,239 +1,52 @@
-# Storage Performance Development Kit
+# spdk-NBFS使用教程
 
-[![Build Status](https://travis-ci.org/spdk/spdk.svg?branch=master)](https://travis-ci.org/spdk/spdk)
+**warning: 使用NBFS需要一块空闲的NVMe SSD, 挂载操作将抹除全部信息！！！**
 
-The Storage Performance Development Kit ([SPDK](http://www.spdk.io)) provides a set of tools
-and libraries for writing high performance, scalable, user-mode storage
-applications. It achieves high performance by moving all of the necessary
-drivers into userspace and operating in a polled mode instead of relying on
-interrupts, which avoids kernel context switches and eliminates interrupt
-handling overhead.
+### Step1 编译
 
-The development kit currently includes:
-
-* [NVMe driver](http://www.spdk.io/doc/nvme.html)
-* [I/OAT (DMA engine) driver](http://www.spdk.io/doc/ioat.html)
-* [NVMe over Fabrics target](http://www.spdk.io/doc/nvmf.html)
-* [iSCSI target](http://www.spdk.io/doc/iscsi.html)
-* [vhost target](http://www.spdk.io/doc/vhost.html)
-* [Virtio-SCSI driver](http://www.spdk.io/doc/virtio.html)
-
-# In this readme
-
-* [Documentation](#documentation)
-* [Prerequisites](#prerequisites)
-* [Source Code](#source)
-* [Build](#libraries)
-* [Unit Tests](#tests)
-* [Vagrant](#vagrant)
-* [AWS](#aws)
-* [Advanced Build Options](#advanced)
-* [Shared libraries](#shared)
-* [Hugepages and Device Binding](#huge)
-* [Example Code](#examples)
-* [Contributing](#contributing)
-
-<a id="documentation"></a>
-## Documentation
-
-[Doxygen API documentation](http://www.spdk.io/doc/) is available, as
-well as a [Porting Guide](http://www.spdk.io/doc/porting.html) for porting SPDK to different frameworks
-and operating systems.
-
-<a id="source"></a>
-## Source Code
-
-~~~{.sh}
-git clone https://github.com/spdk/spdk
-cd spdk
-git submodule update --init
-~~~
-
-<a id="prerequisites"></a>
-## Prerequisites
-
-The dependencies can be installed automatically by `scripts/pkgdep.sh`.
-The `scripts/pkgdep.sh` script will automatically install the bare minimum
-dependencies required to build SPDK.
-Use `--help` to see information on installing dependencies for optional components
-
-~~~{.sh}
-./scripts/pkgdep.sh
-~~~
-
-<a id="libraries"></a>
-## Build
-
-Linux:
-
-~~~{.sh}
-./configure
+```
+./configure --with-fuse
 make
-~~~
+```
 
-FreeBSD:
-Note: Make sure you have the matching kernel source in /usr/src/ and
-also note that CONFIG_COVERAGE option is not available right now
-for FreeBSD builds.
+### Step2 获取空闲NVMe设备，并初始化文件系统
 
-~~~{.sh}
-./configure
-gmake
-~~~
+在`SPDK`目录下输入命令：
 
-<a id="tests"></a>
-## Unit Tests
+```
+HUGEMEM=5120 scripts/setup.sh
+scripts/gen_nvme.sh --json-with-subsystems > rocksdb.json
+test/blobfs/mkfs/mkfs rocksdb.json Nvme0n1
+```
 
-~~~{.sh}
-./test/unit/unittest.sh
-~~~
+### Step3 使用FUSE
 
-You will see several error messages when running the unit tests, but they are
-part of the test suite. The final message at the end of the script indicates
-success or failure.
+安装`fuse3`组件:
 
-<a id="vagrant"></a>
-## Vagrant
+```
+sudo apt-get install libfuse3-dev
+```
 
-A [Vagrant](https://www.vagrantup.com/downloads.html) setup is also provided
-to create a Linux VM with a virtual NVMe controller to get up and running
-quickly.  Currently this has been tested on MacOS, Ubuntu 16.04.2 LTS and
-Ubuntu 18.04.3 LTS with the VirtualBox and Libvirt provider.
-The [VirtualBox Extension Pack](https://www.virtualbox.org/wiki/Downloads)
-or [Vagrant Libvirt] (https://github.com/vagrant-libvirt/vagrant-libvirt) must
-also be installed in order to get the required NVMe support.
+创建`fuse`挂载点：
 
-Details on the Vagrant setup can be found in the
-[SPDK Vagrant documentation](http://spdk.io/doc/vagrant.html).
+```
+midir /mnt/fuse
+```
 
-<a id="aws"></a>
-## AWS
+在`SPDK`目录下，输入以下命令将文件系统挂载至`FUSE`：
 
-The following setup is known to work on AWS:
-Image: Ubuntu 18.04
-Before running  `setup.sh`, run `modprobe vfio-pci`
-then: `DRIVER_OVERRIDE=vfio-pci ./setup.sh`
+```
+test/blobfs/fuse/fuse rocksdb.json Nvme0n1 /mnt/fuse
+```
 
-<a id="advanced"></a>
-## Advanced Build Options
+### Step4 运行
 
-Optional components and other build-time configuration are controlled by
-settings in the Makefile configuration file in the root of the repository. `CONFIG`
-contains the base settings for the `configure` script. This script generates a new
-file, `mk/config.mk`, that contains final build settings. For advanced configuration,
-there are a number of additional options to `configure` that may be used, or
-`mk/config.mk` can simply be created and edited by hand. A description of all
-possible options is located in `CONFIG`.
+在`Step3`之后，终端会被阻塞，新打开一个终端，使用cd命令进入挂载点`/mnt/fuse`,接着可以使用常见的`shell`指令对文件操作。
 
-Boolean (on/off) options are configured with a 'y' (yes) or 'n' (no). For
-example, this line of `CONFIG` controls whether the optional RDMA (libibverbs)
-support is enabled:
+支持的命令有：
 
-	CONFIG_RDMA?=n
-
-To enable RDMA, this line may be added to `mk/config.mk` with a 'y' instead of
-'n'. For the majority of options this can be done using the `configure` script.
-For example:
-
-~~~{.sh}
-./configure --with-rdma
-~~~
-
-Additionally, `CONFIG` options may also be overridden on the `make` command
-line:
-
-~~~{.sh}
-make CONFIG_RDMA=y
-~~~
-
-Users may wish to use a version of DPDK different from the submodule included
-in the SPDK repository.  Note, this includes the ability to build not only
-from DPDK sources, but also just with the includes and libraries
-installed via the dpdk and dpdk-devel packages.  To specify an alternate DPDK
-installation, run configure with the --with-dpdk option.  For example:
-
-Linux:
-
-~~~{.sh}
-./configure --with-dpdk=/path/to/dpdk/x86_64-native-linuxapp-gcc
-make
-~~~
-
-FreeBSD:
-
-~~~{.sh}
-./configure --with-dpdk=/path/to/dpdk/x86_64-native-bsdapp-clang
-gmake
-~~~
-
-The options specified on the `make` command line take precedence over the
-values in `mk/config.mk`. This can be useful if you, for example, generate
-a `mk/config.mk` using the `configure` script and then have one or two
-options (i.e. debug builds) that you wish to turn on and off frequently.
-
-<a id="shared"></a>
-## Shared libraries
-
-By default, the build of the SPDK yields static libraries against which
-the SPDK applications and examples are linked.
-Configure option `--with-shared` provides the ability to produce SPDK shared
-libraries, in addition to the default static ones.  Use of this flag also
-results in the SPDK executables linked to the shared versions of libraries.
-SPDK shared libraries by default, are located in `./build/lib`.  This includes
-the single SPDK shared lib encompassing all of the SPDK static libs
-(`libspdk.so`) as well as individual SPDK shared libs corresponding to each
-of the SPDK static ones.
-
-In order to start a SPDK app linked with SPDK shared libraries, make sure
-to do the following steps:
-
-- run ldconfig specifying the directory containing SPDK shared libraries
-- provide proper `LD_LIBRARY_PATH`
-
-If DPDK shared libraries are used, you may also need to add DPDK shared
-libraries to `LD_LIBRARY_PATH`
-
-Linux:
-
-~~~{.sh}
-./configure --with-shared
-make
-ldconfig -v -n ./build/lib
-LD_LIBRARY_PATH=./build/lib/:./dpdk/build/lib/ ./build/bin/spdk_tgt
-~~~
-
-<a id="huge"></a>
-## Hugepages and Device Binding
-
-Before running an SPDK application, some hugepages must be allocated and
-any NVMe and I/OAT devices must be unbound from the native kernel drivers.
-SPDK includes a script to automate this process on both Linux and FreeBSD.
-This script should be run as root.
-
-~~~{.sh}
-sudo scripts/setup.sh
-~~~
-
-Users may wish to configure a specific memory size. Below is an example of
-configuring 8192MB memory.
-
-~~~{.sh}
-sudo HUGEMEM=8192 scripts/setup.sh
-~~~
-
-<a id="examples"></a>
-## Example Code
-
-Example code is located in the examples directory. The examples are compiled
-automatically as part of the build process. Simply call any of the examples
-with no arguments to see the help output. You'll likely need to run the examples
-as a privileged user (root) unless you've done additional configuration
-to grant your user permission to allocate huge pages and map devices through
-vfio.
-
-<a id="contributing"></a>
-## Contributing
-
-For additional details on how to get more involved in the community, including
-[contributing code](http://www.spdk.io/development) and participating in discussions and other activities, please
-refer to [spdk.io](http://www.spdk.io/community)
+- ls
+- echo 文件内容>文件名
+- rm
+- mv
+- ...
